@@ -2,7 +2,13 @@ import fs from 'node:fs';
 import process from 'node:process';
 import chalk from 'chalk';
 import ini from 'ini';
-import { NPMRC, NRMRC, REGISTRIES, REGISTRY } from './constants.js';
+import {
+  NPMRC,
+  NRMRC,
+  NPMRC_ALLOWED_TOP_LEVEL_KEYS,
+  REGISTRIES,
+  REGISTRY,
+} from './constants.js';
 import type { Registry } from './types.js';
 
 export async function readFile(
@@ -97,6 +103,29 @@ export async function isInternalRegistry(name: string, handle?: string) {
   }
 
   return false;
+}
+
+/**
+ * Strip registry-internal fields (home, _auth, always-auth, email,
+ * repository, …) from `registry` and return ONLY keys that are safe
+ * to write at the top level of ~/.npmrc.
+ *
+ * Scope entries (`@scope:registry`) are also allowed through because
+ * they are written by onSetScope and follow npm's scope convention.
+ *
+ * See https://docs.npmjs.com/cli/v10/configuring-npm/npmrc — _auth and
+ * friends are meant to be scoped (`//host/:_auth=...`), not global.
+ */
+export function filterNpmrcAllowed(
+  registry: Record<string, any>,
+): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [key, value] of Object.entries(registry)) {
+    if (NPMRC_ALLOWED_TOP_LEVEL_KEYS.has(key) || key.includes(':')) {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 export function exit(error?: string) {

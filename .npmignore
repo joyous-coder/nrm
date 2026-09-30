@@ -1,0 +1,39 @@
+# Build artifacts are already gated by package.json "files": ["dist"],
+# but .npmignore is a defense-in-depth in case "files" ever drifts.
+
+# Source & test
+src/
+tests/
+
+# Backups from in-place edits (these contain the original pre-fix code)
+*.bak.*
+
+# TypeScript / build config
+tsconfig.json
+biome.json
+vitest.config.ts
+.editorconfig
+
+# VCS / IDE / OS noise
+.git/
+.gitignore
+.gitattributes
+.github/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Lockfiles (npm install will produce these on the consumer side)
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Changesets (upstream release infra, not needed by consumers)
+.changeset/
+
+# Coverage / cache
+coverage/
+.nyc_output/
+.cache/
+*.tsbuildinfo

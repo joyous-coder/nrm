@@ -1,14 +1,15 @@
 {
-  "name": "nrm",
-  "version": "2.1.0",
-  "description": "npm registry manager can help you switch different npm registries easily and quickly",
+  "name": "@joyous-coder/nrm",
+  "version": "2.1.1",
+  "description": "npm registry manager — Pana/nrm fork that fixes the npmrc _auth leak: switching registries no longer writes `_auth`, `always-auth`, `email`, `repository`, or `home` to the top level of ~/.npmrc",
   "bin": {
     "nrm": "dist/index.js"
   },
   "type": "commonjs",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Pana/nrm.git"
+    "url": "git+https://github.com/joyous-coder/nrm.git",
+    "directory": "."
   },
   "files": [
     "dist"
@@ -25,14 +26,25 @@
   },
   "keywords": [
     "npm",
-    "registry"
+    "registry",
+    "nrm",
+    "npmrc",
+    "patch",
+    "fork"
   ],
-  "author": "Pana",
+  "author": {
+    "name": "joyous-coder",
+    "url": "https://github.com/joyous-coder/nrm"
+  },
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/Pana/nrm/issues"
+    "url": "https://github.com/joyous-coder/nrm/issues"
   },
-  "homepage": "https://github.com/Pana/nrm",
+  "homepage": "https://github.com/joyous-coder/nrm#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "dependencies": {
     "@inquirer/checkbox": "^4.0.3",
     "@inquirer/select": "^4.0.2",

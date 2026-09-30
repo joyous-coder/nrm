@@ -42,3 +42,32 @@ export const ALWAYS_AUTH = 'always-auth';
 export const REGISTRY_ATTRS = [REGISTRY, HOME, AUTH, ALWAYS_AUTH];
 export const NRMRC = path.join(os.homedir(), '.nrmrc');
 export const NPMRC = path.join(os.homedir(), '.npmrc');
+
+/**
+ * Keys that are safe to write to ~/.npmrc at the top level.
+ * Anything else (especially _auth, always-auth, email, repository, home)
+ * must NOT be written at the top level — npm applies those as scoped
+ * `//host/path/:_auth=...` entries, not globals. See:
+ * https://docs.npmjs.com/cli/v10/configuring-npm/npmrc
+ */
+export const NPMRC_ALLOWED_TOP_LEVEL_KEYS = new Set<string>([
+  REGISTRY,
+  // scope entries look like `@scope:registry`; they are written by
+  // onSetScope and must be allowed through.
+]);
+
+/**
+ * Build the scoped `_auth` key for a registry URL, e.g.
+ *   https://registry.example.com/  →  //registry.example.com/:_auth
+ * which is the npm-canonical form for scoped basic-auth credentials.
+ */
+export function scopedAuthKey(registryUrl: string): string {
+  let host = '';
+  try {
+    host = new URL(registryUrl).host;
+  } catch {
+    // best-effort fallback: strip protocol by hand
+    host = registryUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  }
+  return `//${host}/:_auth`;
+}

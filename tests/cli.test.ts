@@ -7,9 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { onHome, onTest } from '../src/actions';
+import { onHome, onTest, onUse } from '../src/actions';
 import { NPMRC, NRMRC, REGISTRIES } from '../src/constants';
-import { isUnicodeSupported, readFile, writeFile } from '../src/helpers';
+import { filterNpmrcAllowed, isUnicodeSupported, readFile, writeFile } from '../src/helpers';
 
 const shouldUseMain = isUnicodeSupported();
 const pointer = shouldUseMain ? '❯' : '>';
@@ -323,5 +323,90 @@ describe('nrm delete without argument (use keyword to select delete)', () => {
       ${pointer}${radioOff} test1
        ${radioOff} test2"
     `);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Regression tests for the `_auth` npmrc-leak bug.
+ *
+ * Before the fix, `nrm use <name>` would Object.assign() the whole registry
+ * object (including _auth, always-auth, email, repository, home) into the
+ * top level of ~/.npmrc. This polluted npm config with a global `_auth`
+ * field that didn't belong there.
+ *
+ * The fix routes every write through `filterNpmrcAllowed`, which only
+ * passes `registry` and scope-shaped keys (`@scope:registry`).
+ * ------------------------------------------------------------------------- */
+
+describe('_auth npmrc-leak regression', () => {
+  beforeEach(async () => {
+    await unlink(NRMRC).catch(() => {});
+    await unlink(NPMRC).catch(() => {});
+  });
+
+  afterEach(async () => {
+    await unlink(NRMRC).catch(() => {});
+    await unlink(NPMRC).catch(() => {});
+  });
+
+  it('filterNpmrcAllowed drops _auth / always-auth / email / repository / home', () => {
+    const polluted = {
+      registry: 'https://registry.example.com/',
+      home: 'https://www.example.com',
+      _auth: 'c2VjcmV0OnBhc3N3b3Jk',
+      'always-auth': true,
+      email: 'me@example.com',
+      repository: 'npm:registry.example.com',
+    };
+    const allowed = filterNpmrcAllowed(polluted);
+    expect(allowed).toEqual({ registry: 'https://registry.example.com/' });
+  });
+
+  it('filterNpmrcAllowed keeps scope entries (key contains `:`)', () => {
+    const input = {
+      registry: 'https://registry.example.com/',
+      '@myco:registry': 'https://npm.example.com/',
+    };
+    const allowed = filterNpmrcAllowed(input);
+    expect(allowed).toEqual({
+      registry: 'https://registry.example.com/',
+      '@myco:registry': 'https://npm.example.com/',
+    });
+  });
+
+  it('onUse with a polluted registry does NOT leak _auth into ~/.npmrc', async () => {
+    // Seed ~/.nrmrc with a custom registry that contains every banned field.
+    // Fixture uses RFC 2606 reserved example.com / example.org domains so
+    // the regression test contains no real registry, user, or org info.
+    await writeFile(NRMRC, {
+      myprivatereg: {
+        registry: 'http://registry.example.com/',
+        _auth: 'dXNlcjpwYXNz', // base64("user:pass") — RFC 4648 example
+        home: 'http://www.example.org/',
+        'always-auth': true,
+        email: 'username@example.com',
+        repository: 'npm:example-registry',
+      },
+    });
+
+    await onUse('myprivatereg');
+
+    const npmrc = await readFile(NPMRC);
+    expect(npmrc.registry).toBe('http://registry.example.com/');
+    expect(npmrc._auth).toBeUndefined();
+    expect(npmrc.home).toBeUndefined();
+    expect(npmrc['always-auth']).toBeUndefined();
+    expect(npmrc.email).toBeUndefined();
+    expect(npmrc.repository).toBeUndefined();
+  });
+
+  it('onUse with a built-in registry does not leak any internal fields', async () => {
+    await onUse('cnpm');
+    const npmrc = await readFile(NPMRC);
+    expect(npmrc.registry).toBe(REGISTRIES.cnpm.registry);
+    expect(npmrc._auth).toBeUndefined();
+    expect(npmrc.home).toBeUndefined();
+    expect(npmrc['always-auth']).toBeUndefined();
+    expect(npmrc.email).toBeUndefined();
   });
 });

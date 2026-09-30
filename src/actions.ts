@@ -12,9 +12,11 @@ import {
   NRMRC,
   REGISTRY,
   REPOSITORY,
+  scopedAuthKey,
 } from './constants';
 import {
   exit,
+  filterNpmrcAllowed,
   geneDashLine,
   getCurrentRegistry,
   getRegistries,
@@ -95,8 +97,13 @@ export async function onUse(name: string) {
   if (await isRegistryNotFound(alias)) {
     return;
   }
-  // https://github.com/Pana/nrm/pull/223#issuecomment-3057092705
-  const { home: _, ...registry } = registries[alias];
+  // Only `registry` (and any existing scope entries) should be written to
+  // ~/.npmrc. Other registry-internal fields like home, _auth,
+  // always-auth, email, repository belong in ~/.nrmrc only — they were
+  // being leaked into ~/.npmrc previously, which produced spurious
+  // top-level `_auth` and broke npm config lookups.
+  // See: https://github.com/Pana/nrm/issues/_auth-leak
+  const registry = filterNpmrcAllowed(registries[alias]);
   const npmrc = await readFile(NPMRC);
   await writeFile(NPMRC, Object.assign(npmrc, registry));
 
@@ -221,14 +228,31 @@ export async function onLogin(
   const currentRegistry = await getCurrentRegistry();
   if (currentRegistry === registry[REGISTRY]) {
     const npmrc = await readFile(NPMRC);
-    await writeFile(
-      NPMRC,
-      Object.assign(npmrc, {
-        [AUTH]: registry[AUTH],
-        [ALWAYS_AUTH]: registry[ALWAYS_AUTH],
-        [EMAIL]: registry[EMAIL],
-      }),
-    );
+    // _auth / always-auth / email must be scoped to the registry URL,
+    // not written at the top level of ~/.npmrc. npm canonical form is
+    //   //host/:_auth=...
+    // so we rewrite the keys to their scoped form and pass everything
+    // through the same whitelist as onUse/onSetAttribute.
+    const scoped: Record<string, any> = {};
+    if (registry[AUTH]) {
+      scoped[scopedAuthKey(registry[REGISTRY])] = registry[AUTH];
+    }
+    if (registry[ALWAYS_AUTH]) {
+      // scoped always-auth: //host/:always-auth=true
+      const host = registry[REGISTRY].replace(/^https?:\/\//, '').replace(
+        /\/.*$/,
+        '',
+      );
+      scoped[`//${host}/:always-auth`] = true;
+    }
+    if (registry[EMAIL]) {
+      const host = registry[REGISTRY].replace(/^https?:\/\//, '').replace(
+        /\/.*$/,
+        '',
+      );
+      scoped[`//${host}/:email`] = registry[EMAIL];
+    }
+    await writeFile(NPMRC, Object.assign(npmrc, scoped));
   }
 }
 
@@ -257,9 +281,12 @@ export async function onSetRepository(name: string, repo: string) {
 
 export async function onSetScope(scopeName: string, url: string) {
   const scopeRegistryKey = `${scopeName}:${REGISTRY}`;
+  // Scope entries are intentionally top-level (`@scope:registry=...`),
+  // but we still funnel through the whitelist so a future `attr=foo`
+  // typo can't write a global _auth from a scope command.
+  const filtered = filterNpmrcAllowed({ [scopeRegistryKey]: url });
   const npmrc = await readFile(NPMRC);
-  Object.assign(npmrc, { [scopeRegistryKey]: url });
-  await writeFile(NPMRC, npmrc);
+  await writeFile(NPMRC, Object.assign(npmrc, filtered));
   printSuccess(`Set scope '${scopeRegistryKey}=${url}' success.`);
 }
 
@@ -302,7 +329,20 @@ export async function onSetAttribute(
   const currentRegistry = await getCurrentRegistry();
   if (currentRegistry === registry[REGISTRY]) {
     const npmrc = await readFile(NPMRC);
-    await writeFile(NPMRC, Object.assign(npmrc, { [attr]: value }));
+    // Scoped attributes (_auth, always-auth, email, repository, …) must
+    // never be written at the top level of ~/.npmrc. Rewrite to the
+    // canonical scoped form `//host/:attr=value`.
+    const topLevel = filterNpmrcAllowed({ [attr]: value });
+    let merged: Record<string, any> = Object.assign(npmrc, topLevel);
+    if (!Object.keys(topLevel).length) {
+      // attr was a scoped-only field — route it through the scoped form.
+      const scopedKey = scopedAuthKey(registry[REGISTRY]).replace(
+        /:_auth$/,
+        `:${attr}`,
+      );
+      merged = Object.assign(npmrc, { [scopedKey]: value });
+    }
+    await writeFile(NPMRC, merged);
   }
 }
 
