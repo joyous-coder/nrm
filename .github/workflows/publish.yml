@@ -1,0 +1,79 @@
+name: Publish to NPM
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (leave empty to use package.json version)'
+        required: false
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write  # Required for Trusted Publishing OIDC
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        # Use `pnpm install` (not `pnpm ci`) so platform-specific optional deps
+        # (e.g. esbuild prebuilt binaries) for the CI runner are resolved.
+        # Force the official registry explicitly so any user-level npmrc
+        # on the runner cannot redirect installs to an unreachable mirror.
+        run: pnpm install --no-frozen-lockfile --registry https://registry.npmjs.org/
+
+      - name: Build project
+        run: pnpm run build
+
+      - name: Run tests (must pass before publish)
+        # Enforce: failing tests block the publish.
+        run: pnpm test
+
+      - name: Check package version
+        id: version
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Package version: $PACKAGE_VERSION"
+
+      # Trusted Publishing via OIDC — no NPM_TOKEN secret required.
+      # Configure the trusted publisher on npmjs.com first
+      # (https://www.npmjs.com/package/@joyous-coder/nrm → Settings → Publishing access
+      #  → Trusted Publishers → Add GitHub: owner=joyous-coder, repo=nrm,
+      #  workflow=.github/workflows/publish.yml).
+      - name: Publish to NPM
+        run: npm publish --provenance --access public --registry https://registry.npmjs.org/
+
+      - name: Success notification
+        if: success()
+        run: |
+          echo "✅ Successfully published version ${{ steps.version.outputs.version }} to NPM via Trusted Publishing"
+          echo "📦 Package: https://www.npmjs.com/package/@joyous-coder/nrm"
+
+      - name: Failure notification
+        if: failure()
+        run: |
+          echo "❌ Failed to publish to NPM"
+          echo "Common causes:"
+          echo "  - Tests failing (run 'pnpm test' locally to reproduce)"
+          echo "  - Build failing (run 'pnpm run build' locally to reproduce)"
+          echo "  - Trusted Publisher not configured on npmjs.com for this workflow file"
+          echo "  - Network / registry issues"
+          echo "Please check the logs above for details"
