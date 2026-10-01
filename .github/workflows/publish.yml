@@ -60,7 +60,7 @@ jobs:
       #  → Trusted Publishers → Add GitHub: owner=joyous-coder, repo=nrm,
       #  workflow=.github/workflows/publish.yml).
       - name: Publish to NPM
-        run: npm publish --provenance --access public --registry https://registry.npmjs.org/
+        run: npm publish --access public --registry https://registry.npmjs.org/
 
       - name: Success notification
         if: success()
