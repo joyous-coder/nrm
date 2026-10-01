@@ -1,6 +1,6 @@
 {
   "name": "@joyous-coder/nrm",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "npm registry manager — Pana/nrm fork that fixes the npmrc _auth leak: switching registries no longer writes `_auth`, `always-auth`, `email`, `repository`, or `home` to the top level of ~/.npmrc",
   "bin": {
     "nrm": "dist/index.js"
